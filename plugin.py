@@ -28,6 +28,7 @@
 
 ###
 
+from humanize import ordinal
 from supybot import utils, plugins, ircutils, callbacks, world, conf, log
 from supybot.commands import *
 
@@ -172,11 +173,13 @@ class Tripsit(callbacks.Plugin):
             irc.error(_('Unknown timezone'), Raise=True)
     set = wrap(set, ["something"])
 
-    @wrap(["private", getopts({'ago': 'something'}), "something", "something", optional("something")])
+    @wrap([getopts({'ago': 'something'}), "something", "something", optional("something")])
     def idose(self, irc, msg, args, opts, dose, name, method):
         """[--ago <HHMM>] <amount> <drug> [<method/ROA>]
 
-        logs a dose for you, can only be used in private.
+        logs a dose for your <nick>, eg. @idose --ago 0100 20mg mph oral
+        would log that dose as if it was taken an hour ago
+        [--ago] and [ROA] fields are optional
         """
         opts = dict(opts)
         r = requests.get(url_drug, params={"name": name}).json()
@@ -253,6 +256,30 @@ class Tripsit(callbacks.Plugin):
             if onset is not None:
                 re += utils.str.format(". You should have/will start feeling effects %s from/after dosing", onset)
         irc.reply(re)
+
+    @wrap([optional('postiveInt')])
+    def undose(self, irc, msg, args, entry):
+        """<n>
+        
+        removes your last dose entry, if <n> is provided then
+        deletes the nth last dose
+        """
+        nick = msg.nick
+        if nick in self.db:
+            nick_dose_log = self.db[nick]['doses']
+            if entry:
+                try:
+                    del nick_dose_log[-int(entry)]
+                    entry = num2words(entry, to='ordinal')
+                    irc.replySuccess(f"Deleted the {entry} last dose logged for {nick} ")
+                except IndexError:
+                    irc.error("The dose entry doesn't exist")
+                return
+            else:
+                del nick_dose_log[-1]
+            irc.replySuccess(f"Deleted the last dose logged for {nick} ")
+        else:
+            irc.error(f'No doses saved for {nick}')        
 
     @wrap([optional('positiveInt')])
     def lastdose(self, irc, msg, args, history):
