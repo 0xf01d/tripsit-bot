@@ -281,6 +281,24 @@ class Tripsit(callbacks.Plugin):
         else:
             irc.error(f'No doses saved for {nick}')        
 
+    @wrap()
+    def doseslogged(self, irc, msg, args, history):
+        """
+        This command takes no arguments.
+        
+        Retrieves the number of doses logged for a given nick
+        """
+        nick = msg.nick
+        if nick in self.db:
+            try:
+                nick_dose_log_count = len(self.db[nick]['doses'])
+                irc.reply(f"{nick} has logged {nick_dose_log_count} doses")
+            except IndexError:
+                irc.error(f"Can't seem to do math, check logs")
+        else:
+            irc.error(f"No doses saved for {nick}")
+
+
     @wrap([optional('positiveInt')])
     def lastdose(self, irc, msg, args, history):
         """<n>
