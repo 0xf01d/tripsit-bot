@@ -248,11 +248,11 @@ class Tripsit(callbacks.Plugin):
             self.db[nick] = {'timezone': timezone, 'doses': doses}
 
         if dose_td == 0:
-            re = utils.str.format("You dosed %s of %s at %s, %s", dose, drug_and_method, str(time), timezone)
+            re = utils.str.format("You dosed %s of %s at %s, %s", dose, drug_and_method, time.strftime("%c"), timezone)
             if onset is not None:
                 re += utils.str.format(". You should start feeling effects %s from now", onset)
         else:
-            re = utils.str.format("You dosed %s of %s at %s, %s ; %T ago", dose, drug_and_method, str(time), timezone, dose_td.total_seconds())
+            re = utils.str.format("You dosed %s of %s at %s, %s ; %T ago", dose, drug_and_method, time.strftime("%c"), timezone, dose_td.total_seconds())
             if onset is not None:
                 re += utils.str.format(". You should have/will start feeling effects %s from/after dosing", onset)
         irc.reply(re)
@@ -292,7 +292,9 @@ class Tripsit(callbacks.Plugin):
         if nick in self.db:
             try:
                 nick_dose_log_count = len(self.db[nick]['doses'])
-                irc.reply(f"{nick} has logged {nick_dose_log_count} doses")
+                nick_dose_log_since = self.db[nick]['doses'][0]["time"]
+                nick_dose_log_since_string = nick_dose_log_since.strftime("%c")
+                irc.reply(f"{nick} has logged {nick_dose_log_count} doses since {nick_dose_log_since_string}")
             except IndexError:
                 irc.error(f"Can't seem to do math, check logs")
         else:
