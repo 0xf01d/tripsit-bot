@@ -154,7 +154,8 @@ class Tripsit(callbacks.Plugin):
             irc.reply("Unknown combo (that doesn't mean it's safe). Known combos: lsd, mushrooms, dmt, mescaline, dox, nbomes, 2c-x, 2c-t-x, amt, 5-meo-xxt, cannabis, ketamine, mxe, dxm, pcp, nitrous, amphetamines, mdma, cocaine, caffeine, alcohol, ghb/gbl, opioids, tramadol, benzodiazepines, maois, ssris.")
 
     combo = wrap(combo, [("something"), ("something")])
-
+    
+# TitleCase for lowercase inputs
     def set(self, irc, msg, args, timezone):
         """<timezone>
 
