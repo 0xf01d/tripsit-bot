@@ -2,7 +2,7 @@
 # Copyright (c) 2020, mogad0n
 # All rights reserved.
 #
-# Redistribution and use in source and binary forms, with or without
+# Redistribution and use in source and binary forms, with or wthout
 # modification, are permitted provided that the following conditions are met:
 #
 #   * Redistributions of source code must retain the above copyright notice,
@@ -54,8 +54,10 @@ except ImportError:
 filename = conf.supybot.directories.data.dirize("Tripsit.db")
 
 
-url_drug = "http://tripbot.tripsit.me/api/tripsit/getDrug"
-url_combo = "http://tripbot.tripsit.me/api/tripsit/getInteraction"
+#url_drug = "http://tripbot.tripsit.me/api/tripsit/getDrug"
+#url_combo = "http://tripbot.tripsit.me/api/tripsit/getInteraction"
+url_drug = "http://172.16.24.2:1999/api/tripsit/getDrug"
+url_combo = "http://172.16.24.2:1999/api/tripsit/getInteraction"
 
 insufflated = ["Insufflation", "Insufflation-IR", "Insufflation-XR"]
 
@@ -113,49 +115,49 @@ class Tripsit(callbacks.Plugin):
         
         fetches data on drug from tripsit wiki
         """
-        category_list = []
-        r = requests.get(url_drug, params={"name": name}).json()
-        if not r['err']:
-            drug = r["data"][0]["pretty_name"]
-            properties = r["data"][0]["properties"]
-            for key in properties:
-                category_list.append(key)
-            if category is None:
-                re = drug + " Available categories are: " + ", ".join(category_list)
-                irc.reply(re)
-            else:
-                if category in properties.keys():
-                    re = drug + " " + properties[category]
-                    irc.reply(re)
-                else:
-                    irc.error(f"Unknown category {drug} Available categories are: " + ", ".join(category_list))
-        else:
-            irc.error("unknown drug")
+#        category_list = []
+#        r = requests.get(url_drug, params={"name": name}).json()
+#        if not r['err']:
+#            drug = r["data"][0]["pretty_name"]
+#            properties = r["data"][0]["properties"]
+#            for key in properties:
+#                category_list.append(key)
+#            if category is None:
+#                re = drug + " Available categories are: " + ", ".join(category_list)
+#                irc.reply(re)
+#            else:
+#                if category in properties.keys():
+#                    re = drug + " " + properties[category]
+#                    irc.reply(re)
+#                else:
+#                    irc.error(f"Unknown category {drug} Available categories are: " + ", ".join(category_list))
+#        else:
+#            irc.error("unknown drug")
+        irc.reply("This no longer works, try @psywiki " + name + " " + category)
 
-    def combo(self, irc, msg, args, drugA, drugB):
-        """<drugA> <drugB>
-        
-        fetches known interactions between the substances provided.
-        """
-        r = requests.get(url_combo, params={f"drugA": drugA, f"drugB": drugB}).json()
-        if not r["err"] and r["data"][0]:
-            interaction = r["data"][0]
-            drug_a = interaction["interactionCategoryA"]
-            drug_b = interaction["interactionCategoryB"]
-            interaction_status = interaction["status"]
-            re = f"{drug_a} and {drug_b}: {interaction_status}"
-            if 'note' in interaction:
-                note = interaction["note"]
-                re += f'. Note: {note}'
-                irc.reply(re)
-            else:
-                irc.reply(re)
-        else:
-            irc.reply("Unknown combo (that doesn't mean it's safe). Known combos: lsd, mushrooms, dmt, mescaline, dox, nbomes, 2c-x, 2c-t-x, amt, 5-meo-xxt, cannabis, ketamine, mxe, dxm, pcp, nitrous, amphetamines, mdma, cocaine, caffeine, alcohol, ghb/gbl, opioids, tramadol, benzodiazepines, maois, ssris.")
+#    def combo(self, irc, msg, args, drugA, drugB):
+#        """<drugA> <drugB>
+#        
+#        fetches known interactions between the substances provided.
+#        """
+#        r = requests.get(url_combo, params={f"drugA": drugA, f"drugB": drugB}).json()
+#        if not r["err"] and r["data"][0]:
+#            interaction = r["data"][0]
+#            drug_a = interaction["interactionCategoryA"]
+#            drug_b = interaction["interactionCategoryB"]
+#            interaction_status = interaction["status"]
+#            re = f"{drug_a} and {drug_b}: {interaction_status}"
+#            if 'note' in interaction:
+#                note = interaction["note"]
+#                re += f'. Note: {note}'
+#                irc.reply(re)
+#            else:
+#                irc.reply(re)
+#        else:
+#            irc.reply("Unknown combo (that doesn't mean it's safe). Known combos: lsd, mushrooms, dmt, mescaline, dox, nbomes, 2c-x, 2c-t-x, amt, 5-meo-xxt, cannabis, ketamine, mxe, dxm, pcp, nitrous, amphetamines, mdma, cocaine, caffeine, alcohol, ghb/gbl, opioids, tramadol, benzodiazepines, maois, ssris.")
+#
+#    combo = wrap(combo, [("something"), ("something")])
 
-    combo = wrap(combo, [("something"), ("something")])
-    
-# TitleCase for lowercase inputs
     def set(self, irc, msg, args, timezone):
         """<timezone>
 
@@ -183,35 +185,35 @@ class Tripsit(callbacks.Plugin):
         [--ago] and [ROA] fields are optional
         """
         opts = dict(opts)
-        r = requests.get(url_drug, params={"name": name}).json()
+#        r = requests.get(url_drug, params={"name": name}).json()
         found_method = False
         onset = None
-        if not r['err']:
-            drug = r['data'][0]
-            drug_name = drug['pretty_name']
-            method_keys = ['value']
-            methods = []
-            if method:
-                methods = [method.lower()]
-                methods = METHODS.get(methods[0], methods)
-                method_keys += methods
+#        if not r['err']:
+#            drug = r['data'][0]
+#            drug_name = drug['pretty_name']
+#            method_keys = ['value']
+        methods = []
+        if method:
+            methods = [method.lower()]
+            methods = METHODS.get(methods[0], methods)
+#            method_keys += methods
 
-            if 'formatted_onset' in drug:
-                match = list(set(method_keys)&
-                    set(drug["formatted_onset"].keys()))
-                if match:
-                    onset = drug["formatted_onset"][match[0]]
-                    found_method = True
-                    if match[0] in methods:
-                        method = (match or [method])[0]
-
-                if onset and "_unit" in drug["formatted_onset"]:
-                    onset = "%s %s" % (
-                        onset, drug["formatted_onset"]["_unit"])
+#            if 'formatted_onset' in drug:
+#                match = list(set(method_keys)&
+#                    set(drug["formatted_onset"].keys()))
+#                if match:
+#                    onset = drug["formatted_onset"][match[0]]
+#                    found_method = True
+#                    if match[0] in methods:
+#                        method = (match or [method])[0]
+#
+#                if onset and "_unit" in drug["formatted_onset"]:
+#                    onset = "%s %s" % (
+#                        onset, drug["formatted_onset"]["_unit"])
         drug_and_method = name
         if method:
             if not found_method:
-                method = method.title()
+                method = method
             drug_and_method = "%s via %s" % (drug_and_method, method)
         else:
             method = 'Undefined'
@@ -256,9 +258,11 @@ class Tripsit(callbacks.Plugin):
             re = utils.str.format("You dosed %s of %s at %s, %s ; %T ago", dose, drug_and_method, time.strftime("%c"), timezone, dose_td.total_seconds())
             if onset is not None:
                 re += utils.str.format(". You should have/will start feeling effects %s from/after dosing", onset)
+#        re=":-( This is currently not available, sorry. Exception ID T0T4LLYFCK3D."
         irc.reply(re)
 
-    @wrap([optional('postiveInt')])
+
+    @wrap([optional('positiveInt')])
     def undose(self, irc, msg, args, entry):
         """<n>
         
@@ -282,8 +286,7 @@ class Tripsit(callbacks.Plugin):
         else:
             irc.error(f'No doses saved for {nick}')        
 
-    @wrap()
-    def doseslogged(self, irc, msg, args, history):
+    def doseslogged(self, irc, msg, args):
         """
         This command takes no arguments.
         
@@ -297,10 +300,11 @@ class Tripsit(callbacks.Plugin):
                 nick_dose_log_since_string = nick_dose_log_since.strftime("%c")
                 irc.reply(f"{nick} has logged {nick_dose_log_count} doses since {nick_dose_log_since_string}")
             except IndexError:
-                irc.error(f"Can't seem to do math, check logs")
+                irc.error("Can't seem to do math, check logs")
         else:
             irc.error(f"No doses saved for {nick}")
 
+    doseslogged = wrap(doseslogged)
 
     @wrap([optional('positiveInt')])
     def lastdose(self, irc, msg, args, history):
@@ -329,12 +333,74 @@ class Tripsit(callbacks.Plugin):
             since_dose_seconds = since_dose.total_seconds()
             if history:
                 history = num2words(history, to='ordinal')
-                re = utils.str.format("Your %i last dose was %s of %s via %s at %s %s, %T ago", history, dose, drug, method, str(dose_time), timezone, since_dose_seconds)
+                re = utils.str.format("Your %i last dose was %s of %s via %s at %s %s, %T ago", history, dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds)
             else:
-                re = utils.str.format("You last dosed %s of %s via %s at %s %s, %T ago", dose, drug, method, str(dose_time), timezone, since_dose_seconds)
+                re = utils.str.format("You last dosed %s of %s via %s at %s %s, %T ago", dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds)
             irc.reply(re)
         else:
             irc.error(f'No doses saved for {nick}')
+
+    @wrap(['positiveInt'])
+    def listdose(self, irc, msg, args, history):
+        """<n>
+
+        retrieves your <n> last logged doses
+
+        """
+        if history > 20:
+            irc.error("you can't retrieve more than 20 doses")
+            return
+        nick = msg.nick
+        if nick in self.db:
+            try:
+                rangecheck = self.db[nick]['doses'][-int(history)]
+                irc.reply(f"Your last {history} doses logged are:", private=True)
+                for number in range(history,0,-1):
+                    lastdose = self.db[nick]['doses'][-int(number)]
+                    dose = lastdose['dose']
+                    drug = lastdose['drug']
+                    method = lastdose['method']
+                    dose_time = lastdose['time']
+                    timezone = self.db[nick]['timezone']
+                    tz = pytz.timezone(str(timezone))
+                    time = datetime.datetime.now(tz=tz)
+                    since_dose = time - dose_time
+                    since_dose_seconds = since_dose.total_seconds()
+                    if number == 1:
+                        number = "The"
+                    else:
+                        number = num2words(number, to='ordinal')
+                    re = utils.str.format("::> %i last dose: Amount: %s of \x02%s\x0F via %s | datetime: %s %s | timedelta %T ", number, dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds)
+                    irc.reply(re, private=True)
+            except IndexError:
+                irc.error("You haven't logged that many doses")
+                return
+        else:
+            irc.error(f'No doses saved for {nick}')
+
+
+
+    @wrap(["something"])
+    def amountdosed(self, irc, msg, args, drug):
+        """<drug>
+
+        shows Aggregate amount in "mg" for <drug> ever logged
+        """
+        num = 0
+        unit = ""
+        nick = msg.nick
+        if nick in self.db:
+            doselogs = self.db[nick]['doses']
+            for doselog in doselogs:
+                if doselog["drug"] == drug:
+                    for i,c in enumerate(doselog["dose"]):
+                        if not c.isdigit():
+                            break 
+                    num += int(doselog["dose"][:i])
+                    unit = doselog["dose"][i:].lstrip()
+            irc.reply(f"You have dosed a total of {num}{unit} amount of {drug}")
+        else:
+            irc.error(f"No doses saved for {nick}")
 
 Class = Tripsit
 
