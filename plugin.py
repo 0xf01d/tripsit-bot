@@ -378,7 +378,30 @@ class Tripsit(callbacks.Plugin):
         else:
             irc.error(f'No doses saved for {nick}')
 
+    @wrap(["something"])
+    def grepdose(self, irc, msg, args, drug):
+        """<drug>
 
+        pulls most recent dose for drug
+        """
+        nick = msg.nick
+        if nick in self.db:
+            doselogs = self.db[nick]['doses']
+            found = False
+            for doselog in reversed(doselogs):
+                if doselog['drug'] == drug:
+                    timezone = self.db[nick]['timezone']
+                    tz = pytz.timezone(str(timezone))
+                    now = datetime.datetime.now(tz=tz)
+                    since_dose = now - doselog['time']
+                    re = utils.str.format("You last dosed %s of %s via %s at %s %s, %T ago", doselog["dose"], doselog["drug"], doselog["method"], doselog["time"].strftime("%c"), timezone, since_dose.total_seconds())
+                    irc.reply(re)
+                    found = True
+                    break
+            if not found:
+                irc.error(f"No doses saved for {drug}")
+        else:
+            irc.error(f"No doses saved for {nick}")
 
     @wrap(["something"])
     def amountdosed(self, irc, msg, args, drug):
