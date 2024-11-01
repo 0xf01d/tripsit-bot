@@ -53,12 +53,6 @@ except ImportError:
 
 filename = conf.supybot.directories.data.dirize("Tripsit.db")
 
-
-#url_drug = "http://tripbot.tripsit.me/api/tripsit/getDrug"
-#url_combo = "http://tripbot.tripsit.me/api/tripsit/getInteraction"
-url_drug = "http://172.16.24.2:1999/api/tripsit/getDrug"
-url_combo = "http://172.16.24.2:1999/api/tripsit/getInteraction"
-
 insufflated = ["Insufflation", "Insufflation-IR", "Insufflation-XR"]
 
 METHODS = {
@@ -74,6 +68,7 @@ METHODS = {
 
     "smoked": ["Smoked"]
 }
+
 
 class Tripsit(callbacks.Plugin):
     """Harm-Reduction tools from tripsit's tripbot and the tripsitwiki"""
@@ -109,55 +104,6 @@ class Tripsit(callbacks.Plugin):
         world.flushers.remove(self._flushDb)
         self.__parent.die()
 
-    @wrap(['something', optional('something')])
-    def drug(self, irc, msg, args, name, category):
-        """<drug> [<category>]
-        
-        fetches data on drug from tripsit wiki
-        """
-#        category_list = []
-#        r = requests.get(url_drug, params={"name": name}).json()
-#        if not r['err']:
-#            drug = r["data"][0]["pretty_name"]
-#            properties = r["data"][0]["properties"]
-#            for key in properties:
-#                category_list.append(key)
-#            if category is None:
-#                re = drug + " Available categories are: " + ", ".join(category_list)
-#                irc.reply(re)
-#            else:
-#                if category in properties.keys():
-#                    re = drug + " " + properties[category]
-#                    irc.reply(re)
-#                else:
-#                    irc.error(f"Unknown category {drug} Available categories are: " + ", ".join(category_list))
-#        else:
-#            irc.error("unknown drug")
-        irc.reply("This no longer works, try @psywiki " + name + " " + category)
-
-#    def combo(self, irc, msg, args, drugA, drugB):
-#        """<drugA> <drugB>
-#        
-#        fetches known interactions between the substances provided.
-#        """
-#        r = requests.get(url_combo, params={f"drugA": drugA, f"drugB": drugB}).json()
-#        if not r["err"] and r["data"][0]:
-#            interaction = r["data"][0]
-#            drug_a = interaction["interactionCategoryA"]
-#            drug_b = interaction["interactionCategoryB"]
-#            interaction_status = interaction["status"]
-#            re = f"{drug_a} and {drug_b}: {interaction_status}"
-#            if 'note' in interaction:
-#                note = interaction["note"]
-#                re += f'. Note: {note}'
-#                irc.reply(re)
-#            else:
-#                irc.reply(re)
-#        else:
-#            irc.reply("Unknown combo (that doesn't mean it's safe). Known combos: lsd, mushrooms, dmt, mescaline, dox, nbomes, 2c-x, 2c-t-x, amt, 5-meo-xxt, cannabis, ketamine, mxe, dxm, pcp, nitrous, amphetamines, mdma, cocaine, caffeine, alcohol, ghb/gbl, opioids, tramadol, benzodiazepines, maois, ssris.")
-#
-#    combo = wrap(combo, [("something"), ("something")])
-
     def set(self, irc, msg, args, timezone):
         """<timezone>
 
@@ -185,31 +131,12 @@ class Tripsit(callbacks.Plugin):
         [--ago] and [ROA] fields are optional
         """
         opts = dict(opts)
-#        r = requests.get(url_drug, params={"name": name}).json()
         found_method = False
         onset = None
-#        if not r['err']:
-#            drug = r['data'][0]
-#            drug_name = drug['pretty_name']
-#            method_keys = ['value']
         methods = []
         if method:
             methods = [method.lower()]
             methods = METHODS.get(methods[0], methods)
-#            method_keys += methods
-
-#            if 'formatted_onset' in drug:
-#                match = list(set(method_keys)&
-#                    set(drug["formatted_onset"].keys()))
-#                if match:
-#                    onset = drug["formatted_onset"][match[0]]
-#                    found_method = True
-#                    if match[0] in methods:
-#                        method = (match or [method])[0]
-#
-#                if onset and "_unit" in drug["formatted_onset"]:
-#                    onset = "%s %s" % (
-#                        onset, drug["formatted_onset"]["_unit"])
         drug_and_method = name
         if method:
             if not found_method:
@@ -258,7 +185,6 @@ class Tripsit(callbacks.Plugin):
             re = utils.str.format("You dosed %s of %s at %s, %s ; %T ago", dose, drug_and_method, time.strftime("%c"), timezone, dose_td.total_seconds())
             if onset is not None:
                 re += utils.str.format(". You should have/will start feeling effects %s from/after dosing", onset)
-#        re=":-( This is currently not available, sorry. Exception ID T0T4LLYFCK3D."
         irc.reply(re)
 
 
