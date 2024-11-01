@@ -28,19 +28,13 @@
 
 ###
 
-from humanize import ordinal
 from supybot import utils, plugins, ircutils, callbacks, world, conf, log
 from supybot.commands import *
 
 
 from num2words import num2words
-import dateutil.parser
-import json
-import requests
 import pickle
-import sys
 import datetime
-import time
 import pytz
 
 try:
@@ -68,6 +62,7 @@ METHODS = {
 
     "smoked": ["Smoked"]
 }
+
 
 class Tripsit(callbacks.Plugin):
     """Harm-Reduction tools from tripsit's tripbot and the tripsitwiki"""
@@ -115,7 +110,7 @@ class Tripsit(callbacks.Plugin):
             if nick in self.db:
                 self.db[nick]['timezone'] = timezone
             else:
-                self.db[nick] = {'timezone': timezone }
+                self.db[nick] = {'timezone': timezone}
             irc.replySuccess()
         except pytz.UnknownTimeZoneError:
             irc.error(_('Unknown timezone'), Raise=True)
@@ -155,7 +150,7 @@ class Tripsit(callbacks.Plugin):
                 dose_td = datetime.timedelta(hours=int(ago[0:2]), minutes=int(ago[2:4]))
                 dose_td_s = dose_td.total_seconds()
                 time = time - dose_td
-            doseLog = {'time': time, 'dose': dose, 'drug': name, 'method': method }
+            doseLog = {'time': time, 'dose': dose, 'drug': name, 'method': method}
             doses = self.db[nick].get('doses')
             if doses:
                 doses.append(doseLog)
@@ -172,7 +167,7 @@ class Tripsit(callbacks.Plugin):
                 dose_td = datetime.timedelta(hours=int(ago[0:2]), minutes=int(ago[2:4]))
                 dose_td_s = dose_td.total_seconds()
                 time = time - dose_td
-            doseLog = {'time': time, 'dose': dose, 'drug': name, 'method': method }
+            doseLog = {'time': time, 'dose': dose, 'drug': name, 'method': method}
             doses = [doseLog]
             self.db[nick] = {'timezone': timezone, 'doses': doses}
 
@@ -190,7 +185,7 @@ class Tripsit(callbacks.Plugin):
     @wrap([optional('positiveInt')])
     def undose(self, irc, msg, args, entry):
         """<n>
-        
+
         removes your last dose entry, if <n> is provided then
         deletes the nth last dose
         """
@@ -253,8 +248,8 @@ class Tripsit(callbacks.Plugin):
             dose_time = lastdose['time']
             timezone = self.db[nick]['timezone']
             tz = pytz.timezone(str(timezone))
-            time = datetime.datetime.now(tz=tz)
-            since_dose = time - dose_time
+            time = datetime.datetime.now(tz = tz)
+            since_dose= time - dose_time
             since_dose_seconds = since_dose.total_seconds()
             if history:
                 history = num2words(history, to='ordinal')
@@ -279,7 +274,7 @@ class Tripsit(callbacks.Plugin):
             try:
                 rangecheck = self.db[nick]['doses'][-int(history)]
                 irc.reply(f"Your last {history} doses logged are:", private=True)
-                for number in range(history,0,-1):
+                for number in range(history, 0, -1):
                     lastdose = self.db[nick]['doses'][-int(number)]
                     dose = lastdose['dose']
                     drug = lastdose['drug']
@@ -315,7 +310,7 @@ class Tripsit(callbacks.Plugin):
             doselogs = self.db[nick]['doses']
             for doselog in doselogs:
                 if doselog["drug"] == drug:
-                    for i,c in enumerate(doselog["dose"]):
+                    for i, c in enumerate(doselog["dose"]):
                         if not c.isdigit():
                             break 
                     num += int(doselog["dose"][:i])
@@ -323,7 +318,7 @@ class Tripsit(callbacks.Plugin):
             irc.reply(f"You have dosed a total of {num}{unit} amount of {drug}")
         else:
             irc.error(f"No doses saved for {nick}")
-
+ 
 Class = Tripsit
 
 
