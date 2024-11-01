@@ -28,19 +28,13 @@
 
 ###
 
-from humanize import ordinal
 from supybot import utils, plugins, ircutils, callbacks, world, conf, log
 from supybot.commands import *
 
 
 from num2words import num2words
-import dateutil.parser
-import json
-import requests
 import pickle
-import sys
 import datetime
-import time
 import pytz
 
 try:
