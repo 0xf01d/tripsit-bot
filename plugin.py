@@ -260,23 +260,33 @@ class Tripsit(callbacks.Plugin):
         else:
             irc.error(f'No doses saved for {nick}')
 
-    @wrap(['positiveInt'])
-    def listdose(self, irc, msg, args, history):
-        """<n>
+    @wrap([getopts({'drug': 'something'}), 'positiveInt'])
+    def listdose(self, irc, msg, args, opts, history):
+        """[--drug <drug>] <n>
 
-        retrieves your <n> last logged doses
-
+        Retrieves your <n> last logged doses, optionally filtered by drug.
         """
         if history > 20:
-            irc.error("you can't retrieve more than 20 doses")
+            irc.error("You can't retrieve more than 20 doses.")
             return
+
+        opts = dict(opts)
+        drug_filter = opts.get('drug')
         nick = msg.nick
+
         if nick in self.db:
+            doses = self.db[nick]['doses']
+            if drug_filter:
+                doses = [dose for dose in doses if dose['drug'].lower() == drug_filter.lower()]
+
+            if len(doses) == 0:
+                irc.error(f"No doses found for drug '{drug_filter}'.")
+                return
+
             try:
-                rangecheck = self.db[nick]['doses'][-int(history)]
-                irc.reply(f"Your last {history} doses logged are:", private=True)
-                for number in range(history,0,-1):
-                    lastdose = self.db[nick]['doses'][-int(number)]
+                irc.reply(f"Your last {history} dose(s) are:", private=True)
+                for number in range(history, 0, -1):
+                    lastdose = doses[-number]
                     dose = lastdose['dose']
                     drug = lastdose['drug']
                     method = lastdose['method']
@@ -286,17 +296,22 @@ class Tripsit(callbacks.Plugin):
                     time = datetime.datetime.now(tz=tz)
                     since_dose = time - dose_time
                     since_dose_seconds = since_dose.total_seconds()
+
                     if number == 1:
                         number = "The"
                     else:
                         number = num2words(number, to='ordinal')
-                    re = utils.str.format("::> %i last dose: Amount: %s of \x02%s\x0F via %s | datetime: %s %s | timedelta %T ", number, dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds)
+
+                    re = utils.str.format(
+                        "::> %s last dose: Amount: %s of \x02%s\x0F via %s | datetime: %s %s | timedelta %T",
+                        number, dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds
+                    )
                     irc.reply(re, private=True)
             except IndexError:
-                irc.error("You haven't logged that many doses")
+                irc.error("You haven't logged that many doses.")
                 return
         else:
-            irc.error(f'No doses saved for {nick}')
+            irc.error(f"No doses saved for {nick}.")
 
     @wrap(["something"])
     def grepdose(self, irc, msg, args, drug):
