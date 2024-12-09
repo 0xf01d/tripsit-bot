@@ -278,15 +278,16 @@ class Tripsit(callbacks.Plugin):
             doses = self.db[nick]['doses']
             if drug_filter:
                 doses = [dose for dose in doses if dose['drug'].lower() == drug_filter.lower()]
-
             if len(doses) == 0:
                 irc.error(f"No doses found for drug '{drug_filter}'.")
                 return
-
+            if drug_filter:
+                irc.reply(f"Here are your last {history} dose(s) for drug '{drug_filter}':", private=True)
+            else:
+                irc.reply(f"Here are your last {history} dose(s):", private=True)
             try:
-                irc.reply(f"Your last {history} dose(s) are:", private=True)
-                for number in range(history, 0, -1):
-                    lastdose = doses[-number]
+                for number in range(0, history):
+                    lastdose = doses[-(number + 1)]
                     dose = lastdose['dose']
                     drug = lastdose['drug']
                     method = lastdose['method']
@@ -296,15 +297,13 @@ class Tripsit(callbacks.Plugin):
                     time = datetime.datetime.now(tz=tz)
                     since_dose = time - dose_time
                     since_dose_seconds = since_dose.total_seconds()
-
-                    if number == 1:
-                        number = "The"
-                    else:
-                        number = num2words(number, to='ordinal')
-
+                    hours, remainder = divmod(since_dose_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    timedelta_str = f"{int(hours)} hours, {int(minutes)} minutes" if hours > 0 else f"{int(minutes)} minutes, {int(seconds)} seconds"
+                    number_str = "The" if number == 0 else num2words(number + 1, to='ordinal')
                     re = utils.str.format(
-                        "::> %s last dose: Amount: %s of \x02%s\x0F via %s | datetime: %s %s | timedelta %T",
-                        number, dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds
+                        "✧ %s last dose: \x02Amount:\x0F %s of \x02%s\x0F \x02via\x0F %s | \x02Datetime:\x0F %s %s | \x02Time Since Last Dose:\x0F %s",
+                        number_str, dose, drug, method, dose_time.strftime("%Y-%m-%d %H:%M:%S"), timezone, timedelta_str
                     )
                     irc.reply(re, private=True)
             except IndexError:
