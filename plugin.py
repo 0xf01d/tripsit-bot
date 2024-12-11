@@ -31,7 +31,10 @@
 from supybot import utils, plugins, ircutils, callbacks, world, conf, log
 from supybot.commands import *
 
+# HTTP Imports
+from supybot import httpserver
 
+# Misc
 from num2words import num2words
 import pickle
 import datetime
@@ -63,6 +66,84 @@ METHODS = {
     "smoked": ["Smoked"]
 }
 
+class TripsitServerCallback(httpserver.SupyHTTPServerCallback):
+    name = 'Tripsit'
+    defaultResponse = """
+    This plugin handles only GET request, please don't use other requests."""
+
+    def __init__(self, plugin):
+        self.plugin = plugin  # to access db
+
+    def doGet(self, handler, path):
+        # '/doses'
+        if path == '/doses':
+            nick = 'mogad0n'
+            dose_logs = self.plugin.db.get(nick, {}).get('doses', [])
+
+            # HTML
+            response = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Dose Logs</title>
+            </head>
+            <body>
+                <h1>Dose Logs for {}</h1>
+                <table border="1">
+                    <tr>
+                        <th>Time</th>
+                        <th>Dose</th>
+                        <th>Drug</th>
+                        <th>Method</th>
+                    </tr>
+            """.format(nick)
+
+            for log in dose_logs:
+                response += """
+                    <tr>
+                        <td>{}</td>
+                        <td>{}</td>
+                        <td>{}</td>
+                        <td>{}</td>
+                    </tr>
+                """.format(
+                    log['time'],
+                    log['dose'],
+                    log['drug'],
+                    log['method']
+                )
+
+            response += """
+                </table>
+            </body>
+            </html>
+            """
+
+            # Response
+            handler.send_response(200)
+            handler.send_header('Content-type', 'text/html')
+            handler.end_headers()
+            handler.wfile.write(response.encode('utf-8'))
+            return
+
+        # handle unknown paths
+        handler.send_response(404)
+        handler.send_header('Content-type', 'text/html')
+        handler.end_headers()
+        handler.wfile.write(b"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>404 Not Found</title>
+        </head>
+        <body>
+            <h1>404 Not Found</h1>
+            <p>The requested resource was not found on this server.</p>
+        </body>
+        </html>
+        """)
 
 class Tripsit(callbacks.Plugin):
     """Harm-Reduction tools from tripsit's tripbot and the tripsitwiki"""
@@ -74,6 +155,7 @@ class Tripsit(callbacks.Plugin):
         self.db = {}
         self._loadDb()
         world.flushers.append(self._flushDb)
+        httpserver.hook('tripsit', TripsitServerCallback(self)) # register the callback at `/tripsit`
 
     def _loadDb(self):
         """Loads the (flatfile) database mapping nicks to doses."""
@@ -95,6 +177,7 @@ class Tripsit(callbacks.Plugin):
 
     def die(self):
         self._flushDb()
+        httpserver.unhook('tripsit')
         world.flushers.remove(self._flushDb)
         self.__parent.die()
 
