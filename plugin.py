@@ -75,75 +75,101 @@ class TripsitServerCallback(httpserver.SupyHTTPServerCallback):
         self.plugin = plugin  # to access db
 
     def doGet(self, handler, path):
-        # '/doses'
         if path == '/doses':
-            nick = 'mogad0n'
-            dose_logs = self.plugin.db.get(nick, {}).get('doses', [])
+            # Collect all dose logs from self.db
+            dose_logs = []
+            for nick, data in self.plugin.db.items():
+                for dose in data.get('doses', []):
+                    dose_logs.append({
+                        'nick': nick,
+                        'time': dose['time'],
+                        'dose': dose['dose'],
+                        'drug': dose['drug'],
+                        'method': dose['method'],
+                    })
 
-            # HTML
-            response = """
+            # Create HTML response
+            html_response = """
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="UTF-8">
                 <title>Dose Logs</title>
+                <style>
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
+                    table, th, td {
+                        border: 1px solid black;
+                    }
+                    th, td {
+                        padding: 8px;
+                        text-align: left;
+                    }
+                    #filter {
+                        margin-bottom: 10px;
+                        padding: 5px;
+                        width: 300px;
+                    }
+                </style>
             </head>
             <body>
-                <h1>Dose Logs for {}</h1>
-                <table border="1">
-                    <tr>
-                        <th>Time</th>
-                        <th>Dose</th>
-                        <th>Drug</th>
-                        <th>Method</th>
-                    </tr>
-            """.format(nick)
-
+                <h1>Dose Logs</h1>
+                <input type="text" id="filter" placeholder="Search for nicknames, drugs, etc.">
+                <table id="doseTable">
+                    <thead>
+                        <tr>
+                            <th>Nick</th>
+                            <th>Time</th>
+                            <th>Dose</th>
+                            <th>Drug</th>
+                            <th>Method</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            # Add rows for each dose log
             for log in dose_logs:
-                response += """
-                    <tr>
-                        <td>{}</td>
-                        <td>{}</td>
-                        <td>{}</td>
-                        <td>{}</td>
-                    </tr>
-                """.format(
-                    log['time'],
-                    log['dose'],
-                    log['drug'],
-                    log['method']
-                )
+                html_response += f"""
+                <tr>
+                    <td>{log['nick']}</td>
+                    <td>{log['time']}</td>
+                    <td>{log['dose']}</td>
+                    <td>{log['drug']}</td>
+                    <td>{log['method']}</td>
+                </tr>
+                """
 
-            response += """
+            html_response += """
+                    </tbody>
                 </table>
+                <script>
+                    // Filter table rows based on input
+                    document.getElementById('filter').addEventListener('input', function() {
+                        const filter = this.value.toLowerCase();
+                        const rows = document.querySelectorAll('#doseTable tbody tr');
+                        rows.forEach(row => {
+                            const text = row.innerText.toLowerCase();
+                            row.style.display = text.includes(filter) ? '' : 'none';
+                        });
+                    });
+                </script>
             </body>
             </html>
             """
 
-            # Response
+            # Send the HTML response
             handler.send_response(200)
             handler.send_header('Content-type', 'text/html')
             handler.end_headers()
-            handler.wfile.write(response.encode('utf-8'))
-            return
-
-        # handle unknown paths
-        handler.send_response(404)
-        handler.send_header('Content-type', 'text/html')
-        handler.end_headers()
-        handler.wfile.write(b"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>404 Not Found</title>
-        </head>
-        <body>
-            <h1>404 Not Found</h1>
-            <p>The requested resource was not found on this server.</p>
-        </body>
-        </html>
-        """)
+            handler.wfile.write(html_response.encode('utf-8'))
+        else:
+            # 404 response for unknown paths
+            handler.send_response(404)
+            handler.send_header('Content-type', 'text/html')
+            handler.end_headers()
+            handler.wfile.write(b"<h1>404 Not Found</h1>")
 
 class Tripsit(callbacks.Plugin):
     """Harm-Reduction tools from tripsit's tripbot and the tripsitwiki"""
@@ -294,7 +320,102 @@ class Tripsit(callbacks.Plugin):
         This command takes no arguments.
         
         Retrieves the number of doses logged for a given nick
-        """
+        """    def doGet(self, handler, path):
+        if path == '/doses':
+            # Collect all dose logs from self.db
+            dose_logs = []
+            for nick, data in self.plugin.db.items():
+                for dose in data.get('doses', []):
+                    dose_logs.append({
+                        'nick': nick,
+                        'time': dose['time'],
+                        'dose': dose['dose'],
+                        'drug': dose['drug'],
+                        'method': dose['method'],
+                    })
+
+            # Create HTML response
+            html_response = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Dose Logs</title>
+                <style>
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
+                    table, th, td {
+                        border: 1px solid black;
+                    }
+                    th, td {
+                        padding: 8px;
+                        text-align: left;
+                    }
+                    #filter {
+                        margin-bottom: 10px;
+                        padding: 5px;
+                        width: 300px;
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>Dose Logs</h1>
+                <input type="text" id="filter" placeholder="Search for nicknames, drugs, etc.">
+                <table id="doseTable">
+                    <thead>
+                        <tr>
+                            <th>Nick</th>
+                            <th>Time</th>
+                            <th>Dose</th>
+                            <th>Drug</th>
+                            <th>Method</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            # Add rows for each dose log
+            for log in dose_logs:
+                html_response += f"""
+                <tr>
+                    <td>{log['nick']}</td>
+                    <td>{log['time']}</td>
+                    <td>{log['dose']}</td>
+                    <td>{log['drug']}</td>
+                    <td>{log['method']}</td>
+                </tr>
+                """
+
+            html_response += """
+                    </tbody>
+                </table>
+                <script>
+                    // Filter table rows based on input
+                    document.getElementById('filter').addEventListener('input', function() {
+                        const filter = this.value.toLowerCase();
+                        const rows = document.querySelectorAll('#doseTable tbody tr');
+                        rows.forEach(row => {
+                            const text = row.innerText.toLowerCase();
+                            row.style.display = text.includes(filter) ? '' : 'none';
+                        });
+                    });
+                </script>
+            </body>
+            </html>
+            """
+
+            # Send the HTML response
+            handler.send_response(200)
+            handler.send_header('Content-type', 'text/html')
+            handler.end_headers()
+            handler.wfile.write(html_response.encode('utf-8'))
+        else:
+            # 404 response for unknown paths
+            handler.send_response(404)
+            handler.send_header('Content-type', 'text/html')
+            handler.end_headers()
+            handler.wfile.write(b"<h1>404 Not Found</h1>")
         nick = msg.nick
         if nick in self.db:
             try:
