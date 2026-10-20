@@ -34,6 +34,7 @@ from supybot.commands import *
 
 from num2words import num2words
 import pickle
+import re
 import datetime
 import pytz
 
@@ -145,9 +146,14 @@ class Tripsit(callbacks.Plugin):
             tz = pytz.timezone(str(timezone))
             time = datetime.datetime.now(tz=tz)
             dose_td = 0
-            if 'ago' in opts and len(opts['ago']) == 4:
-                ago = opts['ago']
-                dose_td = datetime.timedelta(hours=int(ago[0:2]), minutes=int(ago[2:4]))
+            if 'ago' in opts:
+                ago = opts['ago'].lstrip('0') or '0'
+                if len(ago) <= 2:
+                    hours, mins = 0, int(ago or '0')
+                else:
+                    hours = int(ago[:-2])
+                    mins = int(ago[-2:])
+                dose_td = datetime.timedelta(hours=hours, minutes=mins)
                 dose_td_s = dose_td.total_seconds()
                 time = time - dose_td
             doseLog = {'time': time, 'dose': dose, 'drug': name, 'method': method }
@@ -162,9 +168,14 @@ class Tripsit(callbacks.Plugin):
             tz = pytz.timezone(timezone)
             time = datetime.datetime.now(tz=tz)
             dose_td = 0
-            if 'ago' in opts and len(opts['ago']) == 4:
-                ago = opts['ago']
-                dose_td = datetime.timedelta(hours=int(ago[0:2]), minutes=int(ago[2:4]))
+            if 'ago' in opts:
+                ago = opts['ago'].lstrip('0') or '0'
+                if len(ago) <= 2:
+                    hours, mins = 0, int(ago or '0')
+                else:
+                    hours = int(ago[:-2])
+                    mins = int(ago[-2:])
+                dose_td = datetime.timedelta(hours=hours, minutes=mins)
                 dose_td_s = dose_td.total_seconds()
                 time = time - dose_td
             doseLog = {'time': time, 'dose': dose, 'drug': name, 'method': method }
@@ -358,6 +369,88 @@ class Tripsit(callbacks.Plugin):
             irc.reply(f"You have dosed a total of {num}{unit} amount of {drug}")
         else:
             irc.error(f"No doses saved for {nick}")
+
+    @wrap([getopts({'since': 'something'}), "something"])
+    def doseamt(self, irc, msg, args, opts, drug):
+        """[--since <YYYY-MM-DD>] <drug>
+
+        shows cumulative dosed amount for <drug>, grouped by unit
+        """
+        nick = msg.nick
+        if nick not in self.db:
+            irc.error(f"No doses saved for {nick}")
+            return
+        cutoff = None
+        opts = dict(opts)
+        if 'since' in opts:
+            try:
+                cutoff = datetime.datetime.fromisoformat(opts['since'])
+            except ValueError:
+                irc.error("Bad --since date, use YYYY-MM-DD")
+                return
+        tz = pytz.timezone(str(self.db[nick]['timezone']))
+        if cutoff is not None:
+            cutoff = tz.localize(cutoff)
+        totals = {}
+        last = None
+        for doselog in self.db[nick]['doses']:
+            if doselog["drug"] != drug:
+                continue
+            if cutoff is not None and doselog["time"] < cutoff:
+                continue
+            m = re.match(r'^([\d.]+)\s*([a-zA-Z]*)$', str(doselog["dose"]))
+            if not m:
+                continue
+            amount, unit = float(m.group(1)), m.group(2).lower() or 'units'
+            totals[unit] = totals.get(unit, 0) + amount
+            last = doselog
+        if not totals:
+            irc.error(f"No doses of {drug} logged")
+            return
+        parts = [f"{v:g}{u}" for u, v in sorted(totals.items())]
+        resp = f"Total {drug}: {', '.join(parts)}"
+        if cutoff is not None:
+            resp += f" since {opts['since']}"
+        if last is not None:
+            since = datetime.datetime.now(tz) - last['time']
+            resp += utils.str.format(" (last: %s, %T ago)", last['dose'], since.total_seconds())
+        irc.reply(resp)
+
+    @wrap(["something"])
+    def tally(self, irc, msg, args, drug):
+        """<drug>
+
+        shows dose count, total amount, average amount and last dose for <drug>
+        """
+        nick = msg.nick
+        if nick not in self.db:
+            irc.error(f"No doses saved for {nick}")
+            return
+        logs = [d for d in self.db[nick]['doses'] if d["drug"] == drug]
+        if not logs:
+            irc.error(f"No doses of {drug} logged")
+            return
+        tz = pytz.timezone(str(self.db[nick]['timezone']))
+        counts = {}
+        sums = {}
+        for d in logs:
+            m = re.match(r'^([\d.]+)\s*([a-zA-Z]*)$', str(d["dose"]))
+            if m:
+                unit = m.group(2).lower() or 'units'
+                counts[unit] = counts.get(unit, 0) + 1
+                sums[unit] = sums.get(unit, 0) + float(m.group(1))
+        last = logs[-1]
+        since = datetime.datetime.now(tz) - last['time']
+        parts = []
+        for u in sorted(sums):
+            n, tot = counts[u], sums[u]
+            avg = tot / n
+            parts.append(f"{n}x, {tot:g}{u} total, {avg:g}{u} avg" if u != 'units'
+                         else f"{n}x, avg {avg:g}")
+        resp = utils.str.format("%s: %s | last: %s via %s, %T ago",
+                              drug, " | ".join(parts), last['dose'], last['method'],
+                              since.total_seconds())
+        irc.reply(resp)
 
 Class = Tripsit
 

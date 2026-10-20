@@ -1,5 +1,7 @@
-__pycache__
-local
-env/
-.gitignore
-.vscode
+wizard/conf/
+wizard/*.conf
+data/
+__pycache__/
+wizard/logs/
+*.bak
+wizard/n.conf

@@ -1,0 +1,51 @@
+# TripSit harm-reduction bot (Limnoria) on irc.hackint.org #drugs.
+# No private registry needed: stock python image, limnoria pip-installed at
+# boot (initContainer), plugin + bot conf from ConfigMaps, state on PVC
+# (lane-work) so the pickle DB and bot state survive restarts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tripsit-bot
+  namespace: hermes-generated-content
+  labels: {app: tripsit-bot}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tripsit-bot}
+  template:
+    metadata:
+      labels: {app: tripsit-bot}
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: setup
+          image: python:3.12-slim
+          command: ["sh", "-c", "useradd -m bot; pip install --no-cache-dir --target /opt/lib limnoria pytz num2words && mkdir -p /state/conf /state/logs /state/backup /state/tmp /state/web /state/plugins/Tripsit /state/data && cp /conf-src/tripsit.conf /conf-src/networks.conf /conf-src/users.conf /state/conf/ && [ -f /conf-src/Tripsit.db ] && cp /conf-src/Tripsit.db /state/data/ || true && cp /plugin-src/* /state/plugins/Tripsit/ && chown -R 1000:1000 /state /opt/lib && echo INIT-DONE && find /opt/lib/bin -maxdepth 1 | head -5 > /state/init-debug.txt 2>&1 || true"]
+          volumeMounts:
+            - {name: state, mountPath: /state, subPath: tripsit-bot}
+            - {name: plugin, mountPath: /plugin-src, readOnly: true}
+            - {name: botconf, mountPath: /conf-src, readOnly: true}
+            - {name: lib, mountPath: /opt/lib}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+      containers:
+        - name: bot
+          image: python:3.12-slim
+          command: ["sh", "-c", "ls /opt/lib/bin/ 2>/dev/null; PYTHONPATH=/opt/lib exec python3 /opt/lib/bin/supybot /state/conf/tripsit.conf"]
+          env:
+            - {name: PYTHONPATH, value: /opt/lib}
+          volumeMounts:
+            - {name: state, mountPath: /state, subPath: tripsit-bot}
+            - {name: lib, mountPath: /opt/lib}
+          resources:
+            requests: {cpu: 20m, memory: 48Mi}
+            limits: {memory: 256Mi}
+      volumes:
+        - {name: state, persistentVolumeClaim: {claimName: lane-work}}
+        - {name: lib, emptyDir: {}}
+        - {name: plugin, configMap: {name: tripsit-plugin}}
+        - {name: botconf, configMap: {name: tripsit-conf}}

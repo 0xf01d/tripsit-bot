@@ -1,5 +1,0 @@
-docopt==0.6.2
-humanize==3.11.0
-logger==1.4
-num2words==0.5.10
-pytz==2020.5
