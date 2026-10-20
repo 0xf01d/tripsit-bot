@@ -33,6 +33,7 @@ from supybot.commands import *
 
 
 from num2words import num2words
+import json
 import pickle
 import re
 import datetime
@@ -47,6 +48,8 @@ except ImportError:
     _ = lambda x: x
 
 filename = conf.supybot.directories.data.dirize("Tripsit.db")
+psychonaut_file = conf.supybot.directories.data.dirize("psychonaut.json")
+psychonaut_alias_file = conf.supybot.directories.data.dirize("psychonaut_alias_index.json")
 
 insufflated = ["Insufflation", "Insufflation-IR", "Insufflation-XR"]
 
@@ -69,11 +72,38 @@ class Tripsit(callbacks.Plugin):
     """Harm-Reduction tools from tripsit's tripbot and the tripsitwiki"""
     threaded = True
 
+    DEFAULT_TZ = 'Europe/Rome'
+
+    PW_ROA_PREF = ['oral', 'sublingual', 'insufflated', 'smoked', 'vaporized', 'rectal']
+    # ordered by decreasing severity: index 0 = worst
+    PW_LEVELS = ['dangerous', 'unsafe', 'uncertain', 'caution']
+    PW_LEVEL_LABEL = {'dangerous': 'Dangerous', 'unsafe': 'Unsafe',
+                      'uncertain': 'Uncertain', 'caution': 'Caution'}
+    # minimal fallback mapping user input -> PsychonautWiki interaction category
+    PW_CATEGORY_INPUTS = {
+        'cannabis': 'Cannabis', 'weed': 'Cannabis',
+        'alcol': 'Alcohol', 'alcohol': 'Alcohol',
+        'ssri': 'SSRIs', 'ssris': 'SSRIs',
+        'maoi': 'MAOIs', 'maois': 'MAOIs',
+        'opioid': 'Opioids', 'opioids': 'Opioids', 'oppiacei': 'Opioids',
+        'oppioidi': 'Opioids', 'oppioide': 'Opioids',
+        'benzo': 'Benzodiazepines', 'benzos': 'Benzodiazepines',
+        'stimolante': 'Stimulants', 'stimolanti': 'Stimulants',
+        'stimulant': 'Stimulants', 'stimulants': 'Stimulants',
+        'depressante': 'Depressants', 'depressanti': 'Depressants',
+        'depressant': 'Depressants', 'depressants': 'Depressants',
+    }
+    # plural-sounding entries in interaction lists are treated as categories
+    # (Stimulants, SSRIs, ...); everything else could be a bare substance
+    # without its own page (Lithium, Nitrous, ...) and must not expand
+    PW_CLASS_STOPWORDS = frozenset(('nitrous',))
+
     def __init__(self, irc):
         self.__parent = super(Tripsit, self)
         self.__parent.__init__(irc)
         self.db = {}
         self._loadDb()
+        self._loadPw()
         world.flushers.append(self._flushDb)
 
     def _loadDb(self):
@@ -93,6 +123,47 @@ class Tripsit(callbacks.Plugin):
                 pickle.dump(self.db, f, 2)
         except Exception as e:
             self.log.warning("Tripsit: Unable to write pickled database: %s", e)
+
+    def _loadPw(self):
+        """Loads the PsychonautWiki data (pages + alias index) and derives
+        the category -> substances map from the interaction lists."""
+        self.pw_pages = {}
+        self.pw_alias = {}
+        self.pw_title_keys = {}
+        self.pw_categories = {}
+        try:
+            with open(psychonaut_file) as f:
+                self.pw_pages = json.load(f)
+            with open(psychonaut_alias_file) as f:
+                self.pw_alias = json.load(f)
+        except Exception as e:
+            self.log.warning("Tripsit: Unable to load psychonaut data: %s", e)
+            return
+        for title in self.pw_pages:
+            self.pw_title_keys[self._pw_key(title)] = title
+        for title, page in self.pw_pages.items():
+            for entries in (page.get('interactions') or {}).values():
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    key = self._pw_key(entry)
+                    if key and key not in self.pw_title_keys and self._pw_is_class_key(key):
+                        cat = self.pw_categories.setdefault(key, {'display': str(entry), 'keys': set()})
+                        cat['keys'].add(self._pw_key(title))
+
+    @classmethod
+    def _pw_is_class_key(cls, key):
+        # NB: do not use builtin any() here -- "from supybot.commands import *"
+        # shadows it with a truthy return value (same in real supybot)
+        if key in cls.PW_CLASS_STOPWORDS:
+            return False
+        if key.endswith('s'):
+            return True
+        for w in ('inhibitor', 'substrate', 'releaser', 'antagonist',
+                  'antidepressant', 'control'):
+            if w in key:
+                return True
+        return False
 
     def die(self):
         self._flushDb()
@@ -193,6 +264,61 @@ class Tripsit(callbacks.Plugin):
         irc.reply(re)
 
 
+    def _parse_when(self, spec, tz, now=None):
+        """Parses HHMM | HHMMSS | YYYY-MM-DD@HHMM | YYYY-MM-DD@HHMMSS into an
+        aware datetime in <tz> (today for time-only specs), or None if invalid."""
+        spec = spec.strip()
+        now = now or datetime.datetime.now(tz)
+        m = re.match(r'^(\d{2})(\d{2})(\d{2})?$', spec)
+        if m:
+            y, mo, d = now.year, now.month, now.day
+            hh, mi, ss = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+        else:
+            m = re.match(r'^(\d{4})-(\d{2})-(\d{2})@(\d{2})(\d{2})(\d{2})?$', spec)
+            if not m:
+                return None
+            y, mo, d, hh, mi = (int(g) for g in m.groups()[:5])
+            ss = int(m.group(6) or 0)
+        if hh > 23 or mi > 59 or ss > 59:
+            return None
+        try:
+            return tz.localize(datetime.datetime(y, mo, d, hh, mi, ss))
+        except ValueError:
+            return None
+
+    @wrap(["something", "something", "something", optional("something")])
+    def hdose(self, irc, msg, args, when, dose, name, method):
+        """<HHMM|HHMMSS|YYYY-MM-DD@HHMM[SS]> <amount> <drug> [<method/ROA>]
+
+        logs a dose taken at <when> (past times only), eg.
+        @hdose 1130 20mg mph oral logs today at 11:30, @hdose 113045 20mg mph
+        oral also sets seconds, @hdose 2025-11-30@1130 20mg mph oral sets an
+        explicit date. Times are in your local timezone.
+        """
+        nick = msg.nick
+        tzname = str(self.db.get(nick, {}).get('timezone', self.DEFAULT_TZ))
+        tz = pytz.timezone(tzname)
+        now = datetime.datetime.now(tz)
+        when_dt = self._parse_when(when, tz, now)
+        if when_dt is None:
+            irc.error("Bad time %s, use HHMM, HHMMSS or YYYY-MM-DD@HHMM[SS]" % when, Raise=True)
+        if when_dt > now:
+            irc.error("That time is in the future, only past times are allowed", Raise=True)
+        if method:
+            drug_and_method = "%s via %s" % (name, method)
+        else:
+            method = 'Undefined'
+            drug_and_method = name
+        nick_db = self.db.setdefault(nick, {})
+        nick_db.setdefault('timezone', tz)
+        nick_db.setdefault('doses', []).append(
+            {'time': when_dt, 'dose': dose, 'drug': name, 'method': method})
+        since = now - when_dt
+        resp = utils.str.format("You dosed %s of %s at %s, %s ; %T ago",
+                                dose, drug_and_method, when_dt.strftime("%c"), tzname,
+                                since.total_seconds())
+        irc.reply(resp)
+
     @wrap([optional('positiveInt')])
     def undose(self, irc, msg, args, entry):
         """<n>
@@ -267,9 +393,29 @@ class Tripsit(callbacks.Plugin):
                 re = utils.str.format("Your %i last dose was %s of %s via %s at %s %s, %T ago", history, dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds)
             else:
                 re = utils.str.format("You last dosed %s of %s via %s at %s %s, %T ago", dose, drug, method, dose_time.strftime("%c"), timezone, since_dose_seconds)
+            note = lastdose.get('note')
+            if note:
+                re += " | note: %s" % note
             irc.reply(re)
         else:
             irc.error(f'No doses saved for {nick}')
+
+    @wrap(['text'])
+    def annotate(self, irc, msg, args, note):
+        """<note>
+
+        annotates your last logged dose with <note>, eg.
+        @annotate felt slightly nauseous
+        """
+        nick = msg.nick
+        doses = self.db.get(nick, {}).get('doses')
+        if not doses:
+            irc.error('no doses logged')
+            return
+        last = doses[-1]
+        last['note'] = note
+        irc.reply("annotated %s %s from %s: %s" %
+                  (last['drug'], last['dose'], last['time'].strftime("%c"), note))
 
     @wrap([getopts({'drug': 'something'}), 'positiveInt'])
     def listdose(self, irc, msg, args, opts, history):
@@ -370,6 +516,23 @@ class Tripsit(callbacks.Plugin):
         else:
             irc.error(f"No doses saved for {nick}")
 
+
+    UNIT_TO_BASE = {'mg': ('mg', 1.0), 'mcg': ('mg', 0.001), 'ug': ('mg', 0.001),
+                    'g': ('mg', 1000.0), 'ml': ('ml', 1.0), 'cl': ('ml', 10.0),
+                    'l': ('ml', 1000.0)}
+
+    def _norm_amount(self, dose):
+        """returns (base_unit, amount) or None"""
+        m = re.match(r'^([\d.]+)\s*([a-zA-Z]*)$', str(dose))
+        if not m:
+            return None
+        amount = float(m.group(1))
+        unit = m.group(2).lower() or 'units'
+        if unit in self.UNIT_TO_BASE:
+            base, factor = self.UNIT_TO_BASE[unit]
+            return base, amount * factor
+        return unit, amount
+
     @wrap([getopts({'since': 'something'}), "something"])
     def doseamt(self, irc, msg, args, opts, drug):
         """[--since <YYYY-MM-DD>] <drug>
@@ -398,17 +561,19 @@ class Tripsit(callbacks.Plugin):
                 continue
             if cutoff is not None and doselog["time"] < cutoff:
                 continue
-            m = re.match(r'^([\d.]+)\s*([a-zA-Z]*)$', str(doselog["dose"]))
-            if not m:
+            norm = self._norm_amount(doselog["dose"])
+            if not norm:
+                label = str(doselog["dose"]).strip().lower()
+                totals[label] = totals.get(label, 0) + 1
                 continue
-            amount, unit = float(m.group(1)), m.group(2).lower() or 'units'
+            unit, amount = norm
             totals[unit] = totals.get(unit, 0) + amount
             last = doselog
         if not totals:
             irc.error(f"No doses of {drug} logged")
             return
-        parts = [f"{v:g}{u}" for u, v in sorted(totals.items())]
-        resp = f"Total {drug}: {', '.join(parts)}"
+        parts = [f"{v:g}{u}" if u in ('mg', 'ml', 'x') else f"{v:g} {u}" for u, v in sorted(totals.items())]
+        resp = utils.str.format("%s: %s", drug, ", ".join(parts))
         if cutoff is not None:
             resp += f" since {opts['since']}"
         if last is not None:
@@ -433,24 +598,206 @@ class Tripsit(callbacks.Plugin):
         tz = pytz.timezone(str(self.db[nick]['timezone']))
         counts = {}
         sums = {}
+        types = {}
         for d in logs:
-            m = re.match(r'^([\d.]+)\s*([a-zA-Z]*)$', str(d["dose"]))
-            if m:
-                unit = m.group(2).lower() or 'units'
+            types[str(d["dose"]).strip().lower()] = types.get(str(d["dose"]).strip().lower(), 0) + 1
+            norm = self._norm_amount(d["dose"])
+            if norm:
+                unit, amount = norm
                 counts[unit] = counts.get(unit, 0) + 1
-                sums[unit] = sums.get(unit, 0) + float(m.group(1))
+                sums[unit] = sums.get(unit, 0) + amount
         last = logs[-1]
         since = datetime.datetime.now(tz) - last['time']
         parts = []
         for u in sorted(sums):
             n, tot = counts[u], sums[u]
             avg = tot / n
-            parts.append(f"{n}x, {tot:g}{u} total, {avg:g}{u} avg" if u != 'units'
-                         else f"{n}x, avg {avg:g}")
+            parts.append(f"{n}x, {tot:g}{u} total, {avg:g}{u} avg")
+        for t in sorted(types):
+            if self._norm_amount(t) is None:
+                parts.append(f"{types[t]}x {t}")
         resp = utils.str.format("%s: %s | last: %s via %s, %T ago",
                               drug, " | ".join(parts), last['dose'], last['method'],
                               since.total_seconds())
+        note = last.get('note')
+        if note:
+            resp += " | note: %s" % note
         irc.reply(resp)
+
+    @staticmethod
+    def _pw_key(name):
+        return re.sub(r'[\s\-_]+', '', str(name).lower())
+
+    def _pw_resolve(self, name):
+        """returns (page_title, category): one of the two is set, or (None, None)
+        if nothing matches the alias index, the page titles, the manual category
+        fallback or the interaction-derived categories."""
+        key = self._pw_key(name)
+        if not key:
+            return None, None
+        title = self.pw_alias.get(key)
+        if title:
+            # some alias targets don't match page keys verbatim (space vs
+            # underscore variants), normalize through the title keys too
+            resolved = self.pw_title_keys.get(self._pw_key(title))
+            if resolved:
+                return resolved, None
+        title = self.pw_title_keys.get(key)
+        if title:
+            return title, None
+        cat = self.PW_CATEGORY_INPUTS.get(key)
+        if cat:
+            title = self.pw_title_keys.get(self._pw_key(cat))
+            if title:
+                return title, None
+            return None, cat
+        if key in self.pw_categories:
+            return None, self.pw_categories[key]['display']
+        return None, None
+
+    @staticmethod
+    def _pw_range(value):
+        """normalizes a dose/duration string: strips [n] citation refs,
+        collapses '80 - 120 mg' to '80-120 mg'"""
+        if not value:
+            return None
+        s = re.sub(r'\[\d+\]', '', str(value)).strip()
+        s = s.replace(' - ', '-').replace(' +', '+')
+        return s or None
+
+    @staticmethod
+    def _pw_dose(value):
+        """like _pw_range but also attaches the unit to the number: '80-120 mg' -> '80-120mg'"""
+        s = Tripsit._pw_range(value)
+        if not s:
+            return None
+        return re.sub(r'(\d)\s+([a-zA-Zµ]+)$', r'\1\2', s)
+
+    def _pw_pick_roa(self, roas):
+        """returns (roa_name, roa_data) following PW_ROA_PREF order,
+        or the first available one"""
+        if not roas:
+            return None, None
+        for pref in self.PW_ROA_PREF:
+            for rk in roas:
+                if rk.lower() == pref:
+                    return rk, roas[rk]
+        rk = sorted(roas)[0]
+        return rk, roas[rk]
+
+    @staticmethod
+    def _irc_truncate(resp, limit=390):
+        if len(resp) <= limit:
+            return resp
+        return resp[:limit - 1].rsplit(' ', 1)[0] + ' …'
+
+    def _pw_line(self, title):
+        page = self.pw_pages[title]
+        parts = [title]
+        roas = page.get('roas') or {}
+        roa_name, roa = self._pw_pick_roa(roas)
+        if roa:
+            seg = "%s common %s" % (roa_name.lower(), self._pw_dose(roa.get('common')) or '?')
+            extras = []
+            for label in ('light', 'strong'):
+                rng = self._pw_dose(roa.get(label))
+                if rng:
+                    extras.append("%s %s" % (label, rng))
+            if extras:
+                seg += " (%s)" % ", ".join(extras)
+            parts.append(seg)
+        total = self._pw_range((page.get('durations') or {}).get('total'))
+        if total:
+            parts.append("total %s" % total)
+        inter = page.get('interactions') or {}
+        counts = ["%d %s" % (len(inter.get(level) or []), level)
+                  for level in self.PW_LEVELS if inter.get(level)]
+        if counts:
+            parts.append("⚠" + ", ".join(counts))
+        if len(parts) == 1:
+            return parts[0]
+        return self._irc_truncate("%s: %s" % (parts[0], ", ".join(parts[1:])))
+
+    @wrap(['something'])
+    def pw(self, irc, msg, args, name):
+        """<substance>
+
+        looks up <substance> on PsychonautWiki: dosage of the most relevant
+        ROA, total duration and interaction counts
+        """
+        title, _cat = self._pw_resolve(name)
+        if not title:
+            irc.error('unknown substance (no psychonaut page)')
+            return
+        irc.reply(self._pw_line(title))
+
+    def _combo_resolve(self, names):
+        """resolves substance names to lookup dicts; returns (resolved, unknown)"""
+        resolved, unknown = [], []
+        for name in names:
+            title, cat = self._pw_resolve(name)
+            if title:
+                keys = {self._pw_key(title)}
+                keys.update(self._pw_key(a) for a in (self.pw_pages[title].get('aliases') or []))
+                resolved.append({'label': title, 'title': title, 'cat': None, 'keys': keys})
+            elif cat:
+                resolved.append({'label': cat, 'title': None, 'cat': cat,
+                                 'keys': {self._pw_key(cat)}})
+            else:
+                unknown.append(name)
+        return resolved, unknown
+
+    def _combo_entry_matches(self, entry, target):
+        en = self._pw_key(entry)
+        if not en:
+            return False
+        tn = self._pw_key(target['title'] or target['cat'])
+        if tn and (en in tn or tn in en):
+            return True
+        cat = self.pw_categories.get(en)
+        return bool(cat and (target['keys'] & cat['keys']))
+
+    def _combo_match(self, page_title, target):
+        """strongest interaction level in <page_title>'s list matching target, or None"""
+        best = None
+        inter = self.pw_pages[page_title].get('interactions') or {}
+        for level, entries in inter.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if self._combo_entry_matches(entry, target):
+                    if best is None or self.PW_LEVELS.index(level) < self.PW_LEVELS.index(best):
+                        best = level
+                    break
+        return best
+
+    def _combo_line(self, a, b):
+        level = None
+        if a['title']:
+            level = self._combo_match(a['title'], b)
+        if b['title']:
+            other = self._combo_match(b['title'], a)
+            if other and (level is None or
+                          self.PW_LEVELS.index(other) < self.PW_LEVELS.index(level)):
+                level = other
+        label = self.PW_LEVEL_LABEL.get(level) if level else None
+        return "%s × %s: %s" % (a['label'], b['label'],
+                                label or "no direct interaction data")
+
+    @wrap(['something', many('something')])
+    def combo(self, irc, msg, args, first, rest):
+        """<sub1> <sub2> [<sub3> ...]
+
+        checks pairwise substance interactions using PsychonautWiki data,
+        eg. @combo lsd tramadol
+        """
+        resolved, unknown = self._combo_resolve([first] + list(rest))
+        if unknown:
+            irc.error("unknown substance (no psychonaut page): %s" % ", ".join(unknown))
+            return
+        for i, a in enumerate(resolved):
+            for b in resolved[i + 1:]:
+                irc.reply(self._combo_line(a, b))
 
 Class = Tripsit
 
