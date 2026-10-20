@@ -208,6 +208,14 @@ class TripsitHelpersTestCase(unittest.TestCase):
         dt = self.p._parse_when('113045', TZ, NOW)
         self.assertEqual((dt.hour, dt.minute, dt.second), (11, 30, 45))
 
+    def test_parse_when_at_prefix(self):
+        dt = self.p._parse_when('@1130', TZ, NOW)
+        self.assertEqual((dt.year, dt.month, dt.day), (2025, 11, 30))
+        self.assertEqual((dt.hour, dt.minute, dt.second), (11, 30, 0))
+        self.assertEqual(dt, self.p._parse_when('1130', TZ, NOW))
+        dt = self.p._parse_when('@113045', TZ, NOW)
+        self.assertEqual((dt.hour, dt.minute, dt.second), (11, 30, 45))
+
     def test_parse_when_date_at(self):
         dt = self.p._parse_when('2025-11-29@1130', TZ, NOW)
         self.assertEqual((dt.year, dt.month, dt.day, dt.hour, dt.minute),
@@ -218,12 +226,15 @@ class TripsitHelpersTestCase(unittest.TestCase):
     def test_parse_when_rejects_invalid(self):
         for spec in ('2599', '1170', '99', '1130555', '1130x', '',
                      '2025-13-01@1130', '2025-11-31@1130', '2025-11-30 1130',
-                     'whenever', '250000'):
+                     'whenever', '250000', '@9999', '@1130x'):
             self.assertIsNone(self.p._parse_when(spec, TZ, NOW), spec)
 
     def test_parse_when_future_is_detectable(self):
         # 23:30 the same day is after NOW: hdose must reject it
         dt = self.p._parse_when('2330', TZ, NOW)
+        self.assertIsNotNone(dt)
+        self.assertGreater(dt, NOW)
+        dt = self.p._parse_when('@2330', TZ, NOW)
         self.assertIsNotNone(dt)
         self.assertGreater(dt, NOW)
 
