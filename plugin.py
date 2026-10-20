@@ -97,6 +97,9 @@ class Tripsit(callbacks.Plugin):
     # (Stimulants, SSRIs, ...); everything else could be a bare substance
     # without its own page (Lithium, Nitrous, ...) and must not expand
     PW_CLASS_STOPWORDS = frozenset(('nitrous',))
+    PW_ROA_FIELDS = ('threshold', 'light', 'common', 'strong', 'heavy')
+    PW_DURATION_ORDER = ('total', 'onset', 'come up', 'peak', 'offset',
+                         'after effects')
 
     def __init__(self, irc):
         self.__parent = super(Tripsit, self)
@@ -718,18 +721,70 @@ class Tripsit(callbacks.Plugin):
             return parts[0]
         return self._irc_truncate("%s: %s" % (parts[0], ", ".join(parts[1:])))
 
-    @wrap(['something'])
-    def pw(self, irc, msg, args, name):
-        """<substance>
+    def _pw_roa_order(self, roas):
+        """ROA names with _pw_pick_roa's preferred one first, rest sorted"""
+        if not roas:
+            return []
+        first, _roa = self._pw_pick_roa(roas)
+        return [first] + sorted(k for k in roas if k != first)
+
+    def _pw_verbose_lines(self, title):
+        """full detail as one IRC line per item: title+aliases, one line per
+        ROA, durations, one line per non-empty interaction level"""
+        page = self.pw_pages[title]
+        head = title
+        aliases = [str(a) for a in (page.get('aliases') or [])
+                   if self._pw_key(a) != self._pw_key(title)]
+        if aliases:
+            head = "%s (aka: %s)" % (title, ", ".join(aliases))
+        lines = [head]
+        roas = page.get('roas') or {}
+        for rk in self._pw_roa_order(roas):
+            roa = roas[rk]
+            segs = ["%s %s" % (field, self._pw_dose(roa.get(field)))
+                    for field in self.PW_ROA_FIELDS
+                    if self._pw_dose(roa.get(field))]
+            if segs:
+                lines.append("Roa %s: %s" % (rk.lower(), ", ".join(segs)))
+        durations = page.get('durations') or {}
+        segs = ["%s %s" % (field, self._pw_range(durations.get(field)))
+                for field in self.PW_DURATION_ORDER
+                if self._pw_range(durations.get(field))]
+        if segs:
+            lines.append("Duration: %s" % ", ".join(segs))
+        inter = page.get('interactions') or {}
+        for level in self.PW_LEVELS:
+            entries = inter.get(level)
+            if entries:
+                lines.append("⚠ %s: %s" % (self.PW_LEVEL_LABEL[level],
+                                           ", ".join(str(e) for e in entries)))
+        return lines
+
+    @wrap([many('something')])
+    def pw(self, irc, msg, args, words):
+        """[-v] <substance>
 
         looks up <substance> on PsychonautWiki: dosage of the most relevant
-        ROA, total duration and interaction counts
+        ROA, total duration and interaction counts. With -v prints one line
+        per ROA with all dose ranges, full durations and the interaction
+        lists per level, eg. @pw -v ketamine
         """
-        title, _cat = self._pw_resolve(name)
+        verbose = False
+        if words and words[0] == '-v':
+            verbose = True
+            words = words[1:]
+        if not words:
+            irc.error('usage: pw [-v] <substance>')
+            return
+        title, _cat = self._pw_resolve(' '.join(words))
         if not title:
             irc.error('unknown substance (no psychonaut page)')
             return
-        irc.reply(self._pw_line(title))
+        if verbose:
+            for line in self._pw_verbose_lines(title):
+                irc.reply(line)
+        else:
+            irc.reply(self._pw_line(title))
 
     def _combo_resolve(self, names):
         """resolves substance names to lookup dicts; returns (resolved, unknown)"""

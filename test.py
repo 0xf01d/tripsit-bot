@@ -272,6 +272,59 @@ class TripsitHelpersTestCase(unittest.TestCase):
         self.assertLessEqual(len(line), 400)
         self.assertTrue(line.endswith('…'))
 
+    # -- pw verbose (-v) --
+
+    def test_pw_roa_order(self):
+        self.assertEqual(self.p._pw_roa_order({}), [])
+        roas = {'Smoked': {}, 'Oral': {}, 'Insufflated': {}}
+        self.assertEqual(self.p._pw_roa_order(roas),
+                         ['Oral', 'Insufflated', 'Smoked'])
+        # no preferred ROA available: everything alphabetical
+        self.assertEqual(self.p._pw_roa_order({'Zzz': {}, 'Aaa': {}}),
+                         ['Aaa', 'Zzz'])
+
+    def test_pw_verbose_lines_ketamine(self):
+        lines = self.p._pw_verbose_lines('Ketamine')
+        # alias 'Ketamine' equals the title and must not show up as aka
+        self.assertEqual(lines[0], 'Ketamine')
+        self.assertEqual(lines[1],
+                         'Roa oral: threshold 50mg, light 50-100mg, '
+                         'common 100-300mg, strong 300-450mg, heavy 450 mg+')
+        self.assertEqual(lines[2],
+                         'Roa insufflated: threshold 5mg, light 10-30mg, '
+                         'common 30-75mg, strong 75-150mg, heavy 150 mg+')
+        self.assertEqual(lines[3],
+                         'Duration: total 1-2 hours, onset 1-3 minutes, '
+                         'come up 5-15 minutes, peak 15-45 minutes, '
+                         'offset 30-60 minutes, after effects 2-12 hours')
+        self.assertEqual(lines[4],
+                         '⚠ Dangerous: Alcohol, GHB, GBL, Opioids, Tramadol')
+        self.assertEqual(lines[5],
+                         '⚠ Uncertain: Amphetamines, Cocaine, '
+                         'Benzodiazepines, MAOIs, Trazodone, Grapefruit')
+        self.assertEqual(len(lines), 6)
+
+    def test_pw_verbose_lines_partial_fields(self):
+        self.p.pw_pages['SubV'] = {
+            'aliases': ['SubV', 'Subee'],
+            'roas': {'Oral': {'threshold': '2 mg', 'common': '5 - 10 mg'}},
+            'durations': {'onset': '30 minutes', 'total': '4 hours'},
+            'interactions': {'caution': ['SSRIs'],
+                             'dangerous': ['Alcohol', 'GHB']},
+        }
+        lines = self.p._pw_verbose_lines('SubV')
+        self.assertEqual(lines, [
+            'SubV (aka: Subee)',
+            'Roa oral: threshold 2mg, common 5-10mg',
+            'Duration: total 4 hours, onset 30 minutes',
+            '⚠ Dangerous: Alcohol, GHB',
+            '⚠ Caution: SSRIs',
+        ])
+
+    def test_pw_verbose_lines_empty_page(self):
+        self.p.pw_pages['Bare'] = {}
+        self.assertEqual(self.p._pw_verbose_lines('Bare'), ['Bare'])
+
     # -- combo lookup --
 
     def test_combo_dangerous(self):
@@ -384,12 +437,47 @@ class TripsitCommandsTestCase(unittest.TestCase):
 
     def test_pw_command(self):
         irc = _FakeIrc()
-        self.p.pw(irc, _FakeMsg('tester'), [], 'ket')
+        self.p.pw(irc, _FakeMsg('tester'), [], ['ket'])
         self.assertEqual(len(irc.replies), 1)
         self.assertIn('Ketamine: oral common 100-300mg', irc.replies[0])
         irc = _FakeIrc()
-        self.p.pw(irc, _FakeMsg('tester'), [], 'unobtainium')
+        self.p.pw(irc, _FakeMsg('tester'), [], ['unobtainium'])
         self.assertEqual(irc.errors, ['unknown substance (no psychonaut page)'])
+
+    def test_pw_command_verbose(self):
+        irc = _FakeIrc()
+        self.p.pw(irc, _FakeMsg('tester'), [], ['-v', 'ket'])
+        self.assertEqual(len(irc.replies), 6)
+        self.assertEqual(irc.replies[0], 'Ketamine')
+        self.assertTrue(irc.replies[1].startswith('Roa oral:'))
+        self.assertTrue(irc.replies[2].startswith('Roa insufflated:'))
+        self.assertTrue(irc.replies[3].startswith('Duration:'))
+        self.assertTrue(irc.replies[4].startswith('⚠ Dangerous:'))
+        self.assertTrue(irc.replies[5].startswith('⚠ Uncertain:'))
+
+    def test_pw_command_verbose_multiword_name(self):
+        irc = _FakeIrc()
+        self.p.pw(irc, _FakeMsg('tester'), [], ['-v', 'psilocybin', 'mushrooms'])
+        self.assertTrue(irc.replies[0].startswith('Psilocybin_mushrooms'))
+        self.assertTrue(any(r.startswith('Roa ') for r in irc.replies))
+
+    def test_pw_command_verbose_stays_compact_without_flag(self):
+        irc = _FakeIrc()
+        self.p.pw(irc, _FakeMsg('tester'), [], ['lsd'])
+        self.assertEqual(len(irc.replies), 1)
+        self.assertIn('LSD: sublingual common 75-150µg', irc.replies[0])
+
+    def test_pw_command_verbose_without_substance(self):
+        irc = _FakeIrc()
+        self.p.pw(irc, _FakeMsg('tester'), [], ['-v'])
+        self.assertEqual(irc.errors, ['usage: pw [-v] <substance>'])
+        self.assertEqual(irc.replies, [])
+
+    def test_pw_command_verbose_unknown(self):
+        irc = _FakeIrc()
+        self.p.pw(irc, _FakeMsg('tester'), [], ['-v', 'unobtainium'])
+        self.assertEqual(irc.errors, ['unknown substance (no psychonaut page)'])
+        self.assertEqual(irc.replies, [])
 
     def test_combo_command_replies_per_pair(self):
         irc = _FakeIrc()
