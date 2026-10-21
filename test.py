@@ -224,10 +224,35 @@ class TripsitHelpersTestCase(unittest.TestCase):
         self.assertEqual(dt.second, 15)
 
     def test_parse_when_rejects_invalid(self):
-        for spec in ('2599', '1170', '99', '1130555', '1130x', '',
+        for spec in ('2599', '1170', '1130x', '',
                      '2025-13-01@1130', '2025-11-31@1130', '2025-11-30 1130',
                      'whenever', '250000', '@9999', '@1130x'):
             self.assertIsNone(self.p._parse_when(spec, TZ, NOW), spec)
+
+    def test_parse_when_relative(self):
+        # any digit length other than 4/6 is X hours YY minutes ago
+        dt = self.p._parse_when('45', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(minutes=45))
+        dt = self.p._parse_when('@45', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(minutes=45))
+        dt = self.p._parse_when('5', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(minutes=5))
+        # '99' used to be invalid, now it is 99 minutes ago
+        dt = self.p._parse_when('99', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(minutes=99))
+        dt = self.p._parse_when('100', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(hours=1))
+        dt = self.p._parse_when('12345', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(hours=123, minutes=45))
+        # 7 digits: 10000 hours 00 minutes ago
+        dt = self.p._parse_when('1000000', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(hours=10000))
+
+    def test_parse_when_relative_is_never_future(self):
+        for spec in ('0', '45', '100', '12345', '1000000'):
+            dt = self.p._parse_when(spec, TZ, NOW)
+            self.assertIsNotNone(dt, spec)
+            self.assertLessEqual(dt, NOW)
 
     def test_parse_when_future_is_detectable(self):
         # 23:30 the same day is after NOW: hdose must reject it
@@ -445,6 +470,16 @@ class TripsitCommandsTestCase(unittest.TestCase):
                           '2500', '20mg', 'mph', None)
         self.assertRaises(_FakeError, self.p.hdose, irc, _FakeMsg('tester'), [],
                           'whenever', '20mg', 'mph', None)
+
+    def test_hdose_relative_minutes(self):
+        self.p.db = {'tester': {'timezone': TZ}}
+        irc = _FakeIrc()
+        before = datetime.datetime.now(TZ)
+        self.p.hdose(irc, _FakeMsg('tester'), [], '45', '5mg', 'x', None)
+        dose = self.p.db['tester']['doses'][-1]
+        delta = (before - dose['time']).total_seconds()
+        self.assertAlmostEqual(delta, 45 * 60, delta=5)
+        self.assertIn('ago', irc.replies[0])
 
     def test_pw_command(self):
         irc = _FakeIrc()
