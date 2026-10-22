@@ -226,30 +226,38 @@ class TripsitHelpersTestCase(unittest.TestCase):
     def test_parse_when_rejects_invalid(self):
         for spec in ('2599', '1170', '1130x', '',
                      '2025-13-01@1130', '2025-11-31@1130', '2025-11-30 1130',
-                     'whenever', '250000', '@9999', '@1130x'):
+                     'whenever', '250000', '@9999', '@1130x',
+                     '1', '45', '99', '100', '12345', '1000000',
+                     '@45', '@45m', '2h30', 'h', 'm', '-45m', '45x'):
             self.assertIsNone(self.p._parse_when(spec, TZ, NOW), spec)
 
+    def test_parse_when_bare_digits_wall_only(self):
+        # exactly 4 digits = HHMM, 6 digits = HHMMSS, wall-clock today;
+        # any other bare-digit length is invalid (no relative fallback)
+        for spec in ('1130', '113045', '@1130', '@113045'):
+            dt = self.p._parse_when(spec, TZ, NOW)
+            self.assertIsNotNone(dt, spec)
+            self.assertEqual((dt.hour, dt.minute), (11, 30), spec)
+
     def test_parse_when_relative(self):
-        # any digit length other than 4/6 is X hours YY minutes ago
-        dt = self.p._parse_when('45', TZ, NOW)
+        # relative specs need an explicit h/m suffix
+        dt = self.p._parse_when('45m', TZ, NOW)
         self.assertEqual(dt, NOW - datetime.timedelta(minutes=45))
-        dt = self.p._parse_when('@45', TZ, NOW)
-        self.assertEqual(dt, NOW - datetime.timedelta(minutes=45))
-        dt = self.p._parse_when('5', TZ, NOW)
+        dt = self.p._parse_when('5m', TZ, NOW)
         self.assertEqual(dt, NOW - datetime.timedelta(minutes=5))
-        # '99' used to be invalid, now it is 99 minutes ago
-        dt = self.p._parse_when('99', TZ, NOW)
+        dt = self.p._parse_when('99m', TZ, NOW)
         self.assertEqual(dt, NOW - datetime.timedelta(minutes=99))
-        dt = self.p._parse_when('100', TZ, NOW)
-        self.assertEqual(dt, NOW - datetime.timedelta(hours=1))
-        dt = self.p._parse_when('12345', TZ, NOW)
-        self.assertEqual(dt, NOW - datetime.timedelta(hours=123, minutes=45))
-        # 7 digits: 10000 hours 00 minutes ago
-        dt = self.p._parse_when('1000000', TZ, NOW)
-        self.assertEqual(dt, NOW - datetime.timedelta(hours=10000))
+        dt = self.p._parse_when('100m', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(minutes=100))
+        dt = self.p._parse_when('2h', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(hours=2))
+        dt = self.p._parse_when('100h', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(hours=100))
+        dt = self.p._parse_when('2h30m', TZ, NOW)
+        self.assertEqual(dt, NOW - datetime.timedelta(hours=2, minutes=30))
 
     def test_parse_when_relative_is_never_future(self):
-        for spec in ('0', '45', '100', '12345', '1000000'):
+        for spec in ('0m', '45m', '2h', '2h30m', '100h'):
             dt = self.p._parse_when(spec, TZ, NOW)
             self.assertIsNotNone(dt, spec)
             self.assertLessEqual(dt, NOW)
@@ -470,12 +478,17 @@ class TripsitCommandsTestCase(unittest.TestCase):
                           '2500', '20mg', 'mph', None)
         self.assertRaises(_FakeError, self.p.hdose, irc, _FakeMsg('tester'), [],
                           'whenever', '20mg', 'mph', None)
+        # bare digits that are neither HHMM nor HHMMSS are invalid now
+        self.assertRaises(_FakeError, self.p.hdose, irc, _FakeMsg('tester'), [],
+                          '45', '20mg', 'mph', None)
+        self.assertRaises(_FakeError, self.p.hdose, irc, _FakeMsg('tester'), [],
+                          '1000000', '20mg', 'mph', None)
 
     def test_hdose_relative_minutes(self):
         self.p.db = {'tester': {'timezone': TZ}}
         irc = _FakeIrc()
         before = datetime.datetime.now(TZ)
-        self.p.hdose(irc, _FakeMsg('tester'), [], '45', '5mg', 'x', None)
+        self.p.hdose(irc, _FakeMsg('tester'), [], '45m', '5mg', 'x', None)
         dose = self.p.db['tester']['doses'][-1]
         delta = (before - dose['time']).total_seconds()
         self.assertAlmostEqual(delta, 45 * 60, delta=5)

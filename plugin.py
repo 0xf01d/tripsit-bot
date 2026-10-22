@@ -268,31 +268,32 @@ class Tripsit(callbacks.Plugin):
 
 
     def _parse_when(self, spec, tz, now=None):
-        """Parses [@]HHMM | [@]HHMMSS | YYYY-MM-DD@HHMM | YYYY-MM-DD@HHMMSS
-        (a leading @ on time-only specs is accepted and ignored) into an
-        aware datetime in <tz> (today for time-only specs), or None if
-        invalid.  All-digit specs of any other length are relative: the
-        last two digits are minutes, the digits before are hours, so
-        '45' is 45 minutes ago and '1000000' is 10000 hours ago."""
+        """Parses [@]HHMM | [@]HHMMSS | YYYY-MM-DD@HHMM[SS] | <n>h[<m>m] | <n>m
+        into an aware datetime in <tz>, or None if invalid.  Time-only specs
+        are today in <tz>; a leading @ on them is accepted and ignored.
+        <n>h[<m>m] / <n>m are relative: <n> hours (plus optional <m> minutes)
+        ago, or <n> minutes ago.  Bare digits are only valid as wall-clock
+        times (exactly 4 or 6 digits); any other length is an error."""
         spec = spec.strip()
         now = now or datetime.datetime.now(tz)
-        if re.match(r'^@?\d+$', spec):
-            digits = spec.lstrip('@')
-            if len(digits) not in (4, 6):
-                if len(digits) <= 2:
-                    hours, mins = 0, int(digits)
-                else:
-                    hours, mins = int(digits[:-2]), int(digits[-2:])
-                return now - datetime.timedelta(hours=hours, minutes=mins)
-            m = re.match(r'^(\d{2})(\d{2})(\d{2})?$', digits)
+        m = re.match(r'^@?(\d{2})(\d{2})(\d{2})?$', spec)
+        if m:
             y, mo, d = now.year, now.month, now.day
             hh, mi, ss = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
         else:
             m = re.match(r'^(\d{4})-(\d{2})-(\d{2})@(\d{2})(\d{2})(\d{2})?$', spec)
-            if not m:
-                return None
-            y, mo, d, hh, mi = (int(g) for g in m.groups()[:5])
-            ss = int(m.group(6) or 0)
+            if m:
+                y, mo, d, hh, mi = (int(g) for g in m.groups()[:5])
+                ss = int(m.group(6) or 0)
+            else:
+                m = re.match(r'^(\d+)h(?:(\d+)m)?$', spec)
+                if m:
+                    return now - datetime.timedelta(hours=int(m.group(1)),
+                                                    minutes=int(m.group(2) or 0))
+                m = re.match(r'^(\d+)m$', spec)
+                if not m:
+                    return None
+                return now - datetime.timedelta(minutes=int(m.group(1)))
         if hh > 23 or mi > 59 or ss > 59:
             return None
         try:
@@ -302,16 +303,16 @@ class Tripsit(callbacks.Plugin):
 
     @wrap(["something", "something", "something", optional("something")])
     def hdose(self, irc, msg, args, when, dose, name, method):
-        """<[@]HHMM[SS]|YYYY-MM-DD@HHMM[SS]|digits> <amount> <drug> [<method/ROA>]
+        """<[@]HHMM[SS]|YYYY-MM-DD@HHMM[SS]|<n>h[<m>m]|<n>m> <amount> <drug> [<method/ROA>]
 
         logs a dose taken at <when> (past times only), eg.
         @hdose 1130 20mg mph oral logs today at 11:30, @hdose @1130 20mg mph
         oral is the same (a leading @ on the time is allowed), @hdose 113045
         20mg mph oral also sets seconds, @hdose 2025-11-30@1130 20mg mph oral
-        sets an explicit date.  A digit-only time of any other length is
-        relative: the last two digits are minutes, the rest hours, so
-        @hdose 45 20mg mph oral logs 45 minutes ago and @hdose 1000000
-        logs 10000 hours ago. Times are in your local timezone.
+        sets an explicit date.  Relative times need an explicit unit suffix:
+        @hdose 45m 20mg mph oral logs 45 minutes ago, @hdose 2h 20mg mph oral
+        logs 2 hours ago and @hdose 2h30m combines both. Times are in your
+        local timezone.
         """
         nick = msg.nick
         tzname = str(self.db.get(nick, {}).get('timezone', self.DEFAULT_TZ))
@@ -319,7 +320,7 @@ class Tripsit(callbacks.Plugin):
         now = datetime.datetime.now(tz)
         when_dt = self._parse_when(when, tz, now)
         if when_dt is None:
-            irc.error("Bad time %s, use [@]HHMM, [@]HHMMSS, digits for XhMMm ago or YYYY-MM-DD@HHMM[SS]" % when, Raise=True)
+            irc.error("Bad time %s, use [@]HHMM, [@]HHMMSS, <n>h[<m>m], <n>m or YYYY-MM-DD@HHMM[SS]" % when, Raise=True)
         if when_dt > now:
             irc.error("That time is in the future, only past times are allowed", Raise=True)
         if method:
